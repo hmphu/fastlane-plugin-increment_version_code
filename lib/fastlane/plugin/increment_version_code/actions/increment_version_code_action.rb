@@ -11,10 +11,12 @@ module Fastlane
 
         constant_name ||= params[:ext_constant_name]
 
+        product_flavor ||= params[:product_flavor]
+
         gradle_file_path ||= params[:gradle_file_path]
         if gradle_file_path != nil
             UI.message("The increment_version_code plugin will use gradle file at (#{gradle_file_path})!")
-            new_version_code = incrementVersion(gradle_file_path, new_version_code, constant_name)
+            new_version_code = incrementVersion(gradle_file_path, new_version_code, constant_name, product_flavor)
         else
             app_folder_name ||= params[:app_folder_name]
             UI.message("The get_version_code plugin is looking inside your project folder (#{app_folder_name})!")
@@ -23,7 +25,7 @@ module Fastlane
             #foundVersionCode = "false"
             Dir.glob("**/#{app_folder_name}/build.gradle") do |path|
                 UI.message(" -> Found a build.gradle file at path: (#{path})!")
-                new_version_code = incrementVersion(path, new_version_code, constant_name)
+                new_version_code = incrementVersion(path, new_version_code, constant_name, product_flavor)
             end
 
         end
@@ -39,26 +41,51 @@ module Fastlane
         return new_version_code
       end
 
-      def self.incrementVersion(path, new_version_code, constant_name)
+      def self.incrementVersion(path, new_version_code, constant_name, product_flavor)
           if !File.file?(path)
               UI.message(" -> No file exist at path: (#{path})!")
               return -1
           end
           begin
               foundVersionCode = "false"
+              foundProductFlavors = "false"
+              foundProductFlavor = "false"
+              version_code = nil
               temp_file = Tempfile.new('fastlaneIncrementVersionCode')
+
               File.open(path, 'r') do |file|
                   file.each_line do |line|
-                      if line.include? constant_name and foundVersionCode=="false"
-                          UI.message(" -> line: (#{line})!")
-                        versionComponents = line.strip.split(' ')
-                        version_code = versionComponents[versionComponents.length-1].tr("\"","")
-                        if new_version_code <= 0
-                            new_version_code = version_code.to_i + 1
+                      if foundVersionCode=="false"
+                        if product_flavor != nil
+                          if foundProductFlavors=="false" and line.include? "productFlavors"
+                            foundProductFlavors = "true"
+                          end
+                          if foundProductFlavors=="true"
+                            if foundProductFlavor == "false" and line.include? product_flavor
+                              foundProductFlavor = "true"
+                            end
+                            if foundProductFlavor == "true" and line.include? constant_name
+                              UI.message(" -> line: (#{line})!")
+                              versionComponents = line.strip.split(' ')
+                              version_code = versionComponents[versionComponents.length-1].tr("\"","")
+                            end
+                          end
+                        else
+                          if line.include? constant_name
+                              UI.message(" -> line: (#{line})!")
+                            versionComponents = line.strip.split(' ')
+                            version_code = versionComponents[versionComponents.length-1].tr("\"","")
+                          end
                         end
-                        if !!(version_code =~ /\A[-+]?[0-9]+\z/)
-                            line.replace line.sub(version_code, new_version_code.to_s)
-                            foundVersionCode = "true"
+
+                        if version_code != nil
+                          if new_version_code <= 0
+                              new_version_code = version_code.to_i + 1
+                          end
+                          if !!(version_code =~ /\A[-+]?[0-9]+\z/)
+                              line.replace line.sub(version_code, new_version_code.to_s)
+                              foundVersionCode = "true"
+                          end
                         end
                         temp_file.puts line
                       else
@@ -111,7 +138,13 @@ module Fastlane
                                    description: "If the version code is set in an ext constant, specify the constant name (optional)",
                                       optional: true,
                                           type: String,
-                                 default_value: "versionCode")
+                                 default_value: "versionCode"),
+              FastlaneCore::ConfigItem.new(key: :product_flavor,
+                                      env_name: "PRODUCT_FLAVOR",
+                                   description: "The name of the product flavor (optional)",
+                                      optional: true,
+                                          type: String,
+                                 default_value: nil)
           ]
       end
 
